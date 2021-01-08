@@ -20,6 +20,19 @@ package com.example.android.marsrealestate.overview
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import com.example.android.marsrealestate.network.MarsApi
+import com.example.android.marsrealestate.network.MarsApiService
+import com.example.android.marsrealestate.network.MarsProperty
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
+import java.lang.Exception
+enum class MarsApiStatus { LOADING, ERROR, DONE }
+enum class MarsApiFilter(val value: String) { SHOW_RENT("rent"), SHOW_BUY("buy"), SHOW_ALL("all") }
 
 /**
  * The [ViewModel] that is attached to the [OverviewFragment].
@@ -32,18 +45,57 @@ class OverviewViewModel : ViewModel() {
     // The external immutable LiveData for the request status String
     val response: LiveData<String>
         get() = _response
+    private val _status = MutableLiveData<MarsApiStatus>()
+    private val _properties = MutableLiveData<List<MarsProperty>>()
 
+    val properties: LiveData<List<MarsProperty>>
+        get() = _properties
+    val status: LiveData<MarsApiStatus>
+        get() = _status
+    private var viewModelJob = Job()
+    private val coroutineScope = CoroutineScope(viewModelJob + Dispatchers.Main )
+    private val _navigateToSelectedProperty = MutableLiveData<MarsProperty>()
+
+    val navigateToSelectedProperty: LiveData<MarsProperty>
+        get() = _navigateToSelectedProperty
     /**
      * Call getMarsRealEstateProperties() on init so we can display status immediately.
      */
     init {
-        getMarsRealEstateProperties()
+        getMarsRealEstateProperties(MarsApiFilter.SHOW_ALL)
     }
-
+    fun displayPropertyDetails(marsProperty: MarsProperty) {
+        _navigateToSelectedProperty.value = marsProperty
+    }
+    fun displayPropertyDetailsComplete() {
+        _navigateToSelectedProperty.value = null
+    }
     /**
      * Sets the value of the status LiveData to the Mars API status.
      */
-    private fun getMarsRealEstateProperties() {
-        _response.value = "Set the Mars API Response here!"
+    private fun getMarsRealEstateProperties(filter: MarsApiFilter) {
+        coroutineScope.launch {
+            try {
+                _status.value = MarsApiStatus.LOADING
+                val deferredResult = MarsApi.retrofitService.getProperties(filter.value)
+                val list = deferredResult.await()
+                _response.value = "Success: ${list?.size} Mars properties retrieved"
+                _status.value = MarsApiStatus.DONE
+                if (list.size > 0) {
+                    _properties.value = list
+                }
+            }catch (ex:Exception){
+                _status.value = MarsApiStatus.ERROR
+                _properties.value = ArrayList()
+                _response.value = "Failure: " + ex.message
+            }
+        }
+    }
+    fun updateFilter(filter: MarsApiFilter) {
+        getMarsRealEstateProperties(filter)
+    }
+    override fun onCleared() {
+        super.onCleared()
+        viewModelJob.cancel()
     }
 }
